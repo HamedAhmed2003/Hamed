@@ -68,6 +68,7 @@ Interno is a full-stack internship platform that connects students with companie
 
 ### Backend (TypeScript API)
 
+```
 backend/
 ├── src/
 │ ├── index.ts
@@ -85,10 +86,11 @@ backend/
 ├── tsconfig.json
 └── .env
 
----
+```
 
 ### Frontend (React + TypeScript)
 
+```
 frontend/
 ├── src/
 │ ├── main.tsx
@@ -118,7 +120,7 @@ frontend/
 ├── package.json
 └── vite.config.ts
 
----
+```
 
 ## Getting Started
 
