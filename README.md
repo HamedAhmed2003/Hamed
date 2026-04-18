@@ -169,4 +169,4 @@ npm install
 npm run dev
 ```
 
-2. then open any browser like (chrome) and write this path http://localhost:8080/
+2. then open any browser like (chrome) and write this path http://localhost:8080
