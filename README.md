@@ -148,6 +148,8 @@ JWT_SECRET= # your JWT secret
 JWT_EXPIRES_IN=30d
 RESEND_API_KEY= # your RESEND API KEY
 GEMINI_API_KEY=# your GEMINI API KEY
+EMAIL_USER= # your email
+EMAIL_PASS= # your email app password
 
 ```
 
