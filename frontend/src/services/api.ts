@@ -103,7 +103,10 @@ export const aiService = {
   extractSkills: (file: File) => {
     const formData = new FormData();
     formData.append('cv', file);
-    return api.post('/ai/extract-skills', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return api.post('/ai/extract-skills', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000 // 60 seconds timeout for AI processing
+    });
   },
 };
 

@@ -34,9 +34,10 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
 
   if (user.role === 'company') {
     // Cast user as CompanyProfile to safely check isApproved
-    // If not approved and trying to access a page other than Dashboard, redirect!
+    // If not approved and trying to access a page other than Dashboard or Profile, redirect!
     const isCompanyDashboard = window.location.pathname === '/company/dashboard';
-    if (!(user as any).isApproved && !isCompanyDashboard) {
+    const isCompanyProfile = window.location.pathname === '/company/profile';
+    if (!(user as any).isApproved && !isCompanyDashboard && !isCompanyProfile) {
       return <Navigate to="/company/dashboard" replace />;
     }
   }
