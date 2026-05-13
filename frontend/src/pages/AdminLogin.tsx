@@ -31,12 +31,14 @@ export default function AdminLoginPage() {
       setErrors(fieldErrors);
       return;
     }
-    const success = await login(email, password, 'admin');
-    if (success) {
-      toast.success('Welcome, Admin!');
-      navigate('/admin/dashboard');
-    } else {
-      toast.error('Invalid admin credentials');
+    try {
+      const success = await login(email, password, 'admin');
+      if (success) {
+        toast.success('Welcome, Admin!');
+        navigate('/admin/dashboard');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Invalid admin credentials');
     }
   };
 

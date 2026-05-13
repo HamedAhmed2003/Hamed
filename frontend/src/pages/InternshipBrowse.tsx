@@ -1,94 +1,144 @@
-import { useState, useMemo, useEffect } from 'react';
-import { AppLayout } from '@/components/AppLayout';
+import { useEffect, useState } from 'react';
 import { useInternshipStore } from '@/store/internshipStore';
-import { useAuthStore } from '@/store/authStore';
-import { InternshipCard } from '@/components/InternshipCard';
+import { AppLayout } from '@/components/AppLayout';
+import { OpportunityCard } from '@/components/OpportunityCard';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { StudentProfile } from '@/types';
-import { calculateSkillMatch } from '@/lib/helpers';
-import { Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Search, MapPin, Briefcase, Filter } from 'lucide-react';
+import { INTEREST_CATEGORIES } from '@/types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function InternshipBrowse() {
-  const { internships, fetchInternships } = useInternshipStore();
-  const user = useAuthStore(s => s.user);
-  
+  const { internships, fetchInternships, isLoading } = useInternshipStore();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [modeFilter, setModeFilter] = useState('all');
+  const [paidFilter, setPaidFilter] = useState('all');
+
   useEffect(() => {
     fetchInternships();
   }, [fetchInternships]);
 
-  const [search, setSearch] = useState('');
-  const [mode, setMode] = useState<string>('all');
-  const [paid, setPaid] = useState<string>('all');
-  const [duration, setDuration] = useState<string>('all');
+  const filteredOpportunities = internships.filter(opp => {
+    const matchesSearch = 
+      opp.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      opp.companyName.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesCategory = categoryFilter === 'all' || opp.category === categoryFilter;
+    const matchesMode = modeFilter === 'all' || opp.mode === modeFilter;
+    const matchesPaid = paidFilter === 'all' || (paidFilter === 'paid' ? opp.isPaid : !opp.isPaid);
 
-  const filtered = useMemo(() => {
-    return internships.filter(i => {
-      if (search && !i.title.toLowerCase().includes(search.toLowerCase()) &&
-          !i.companyName.toLowerCase().includes(search.toLowerCase())) return false;
-      if (mode !== 'all' && i.mode !== mode) return false;
-      if (paid === 'paid' && !i.isPaid) return false;
-      if (paid === 'unpaid' && i.isPaid) return false;
-      if (duration !== 'all' && !i.duration.includes(duration)) return false;
-      return true;
-    });
-  }, [internships, search, mode, paid, duration]);
-
-  const studentSkills = user?.role === 'student' ? (user as StudentProfile).skills : [];
+    return matchesSearch && matchesCategory && matchesMode && matchesPaid;
+  });
 
   return (
     <AppLayout>
-      <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">Browse Internships</h1>
-          <p className="text-muted-foreground">{filtered.length} internships available</p>
-        </div>
+      <div className="bg-primary/5 py-16 border-b border-border/50 animate-fade-in">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
+          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
+            Discover <span className="gradient-primary-text">Opportunities</span>
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            Find the perfect place to make an impact. We match your personality with causes that matter.
+          </p>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search by title or company..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+          <div className="max-w-4xl mx-auto mt-8 bg-card p-2 rounded-2xl shadow-xl shadow-primary/5 border border-primary/10 flex flex-col md:flex-row gap-2">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+              <Input
+                placeholder="Search by role or organization..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="pl-10 h-12 border-none bg-transparent focus-visible:ring-0 text-base"
+              />
+            </div>
+            <div className="w-px bg-border hidden md:block"></div>
+            <div className="md:w-48 relative">
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="h-12 border-none bg-transparent focus:ring-0 text-base">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {INTEREST_CATEGORIES.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-px bg-border hidden md:block"></div>
+            <div className="md:w-40 relative">
+              <Select value={modeFilter} onValueChange={setModeFilter}>
+                <SelectTrigger className="h-12 border-none bg-transparent focus:ring-0 text-base">
+                  <SelectValue placeholder="Work Mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any Mode</SelectItem>
+                  <SelectItem value="online">Remote</SelectItem>
+                  <SelectItem value="hybrid">Hybrid</SelectItem>
+                  <SelectItem value="offline">On-site</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button className="h-12 px-8 rounded-xl gradient-primary text-primary-foreground hidden md:flex">
+              Search
+            </Button>
           </div>
-          <Select value={mode} onValueChange={setMode}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Mode" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Modes</SelectItem>
-              <SelectItem value="online">Online</SelectItem>
-              <SelectItem value="offline">Offline</SelectItem>
-              <SelectItem value="hybrid">Hybrid</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={paid} onValueChange={setPaid}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Pay" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
-              <SelectItem value="unpaid">Unpaid</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={duration} onValueChange={setDuration}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Duration" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="3">3 months</SelectItem>
-              <SelectItem value="4">4 months</SelectItem>
-              <SelectItem value="5">5 months</SelectItem>
-              <SelectItem value="6">6 months</SelectItem>
-            </SelectContent>
-          </Select>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-bold">
+            {filteredOpportunities.length} {filteredOpportunities.length === 1 ? 'Opportunity' : 'Opportunities'} Found
+          </h2>
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={paidFilter} onValueChange={setPaidFilter}>
+              <SelectTrigger className="w-[140px] h-9">
+                <SelectValue placeholder="Compensation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="paid">Stipend / Paid</SelectItem>
+                <SelectItem value="unpaid">Volunteer / Unpaid</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(internship => (
-            <InternshipCard
-              key={internship.id}
-              internship={internship}
-              skillMatch={studentSkills.length > 0 ? calculateSkillMatch(studentSkills, internship.requiredSkills) : undefined}
-            />
-          ))}
-        </div>
-        {filtered.length === 0 && (
-          <p className="text-center text-muted-foreground py-12">No internships match your filters.</p>
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="h-80 rounded-[1rem] bg-accent/50 animate-pulse border border-border"></div>
+            ))}
+          </div>
+        ) : filteredOpportunities.length === 0 ? (
+          <div className="text-center py-24 bg-accent/20 rounded-[1rem] border border-border/50">
+            <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-bold mb-2">No opportunities found</h3>
+            <p className="text-muted-foreground">Try adjusting your filters or search terms.</p>
+            <Button variant="outline" className="mt-6" onClick={() => {
+              setSearchTerm('');
+              setCategoryFilter('all');
+              setModeFilter('all');
+              setPaidFilter('all');
+            }}>
+              Clear Filters
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredOpportunities.map(opp => (
+              <OpportunityCard key={opp._id || opp.id} opportunity={opp} />
+            ))}
+          </div>
         )}
       </div>
     </AppLayout>

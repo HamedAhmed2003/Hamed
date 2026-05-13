@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Upload, X, Plus, Sparkles } from 'lucide-react';
-import { aiService } from '@/services/api';
+import { Upload, X, Plus, Sparkles, User as UserIcon } from 'lucide-react';
+import { aiService, authService } from '@/services/api';
+import { getImageUrl } from '@/utils/imageUrl';
 
 export default function StudentProfile() {
   const { user, updateProfile, updateSkills } = useAuthStore();
@@ -21,8 +22,10 @@ export default function StudentProfile() {
   const [formData, setFormData] = useState({
     username: student.username || '',
     phone: student.phone || '',
-    gender: student.gender || 'other'
+    gender: student.gender || 'other',
+    profileImage: getImageUrl(student.profileImage)
   });
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const handleAddSkill = () => {
     if (newSkill.trim() && !student.skills.includes(newSkill.trim())) {
@@ -61,6 +64,27 @@ export default function StudentProfile() {
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('profileImage', file);
+      const res = await authService.updateProfile(formData);
+      // Backend returns updated user
+      updateProfile(res.data);
+      setFormData(prev => ({ ...prev, profileImage: getImageUrl(res.data.profileImage) }));
+      toast.success('Profile image updated!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSaveProfile = async () => {
     await updateProfile(formData);
     toast.success('Profile updated!');
@@ -73,8 +97,35 @@ export default function StudentProfile() {
 
         <Card className="border-border/50">
           <CardHeader><CardTitle>Personal Information</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <CardContent className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-center gap-6 pb-4 border-b border-border/50">
+              <div className="relative group">
+                <div className="w-24 h-24 rounded-2xl bg-muted overflow-hidden border-2 border-violet-100 group-hover:border-violet-300 transition-colors">
+                  {formData.profileImage ? (
+                    <img src={formData.profileImage} className="w-full h-full object-cover" alt="" />
+                  ) : <UserIcon className="h-10 w-10 text-muted-foreground/40 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />}
+                </div>
+                <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 group-hover:opacity-100 cursor-pointer rounded-2xl transition-opacity">
+                  <Upload className="h-6 w-6" />
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploadingImage} />
+                </label>
+                {uploadingImage && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-2xl">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
+                  </div>
+                )}
+              </div>
+              <div className="text-center sm:text-left">
+                <h3 className="font-bold">Profile Picture</h3>
+                <p className="text-sm text-muted-foreground">JPG, GIF or PNG. Max size of 2MB.</p>
+                <Button variant="outline" size="sm" className="mt-2 h-8 text-xs rounded-full relative">
+                  Upload New
+                  <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} disabled={uploadingImage} />
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div className="space-y-2">
                 <Label>Username</Label>
                 <Input value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} />
@@ -150,6 +201,71 @@ export default function StudentProfile() {
             </div>
           </CardContent>
         </Card>
+
+        {student.hasCompletedOnboarding && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="border-border/50 bg-primary/5">
+              <CardHeader><CardTitle className="text-lg">Personality Profile</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {student.personalityAssessment && student.personalityAssessment.length > 0 ? (
+                    // Group by category and average the scores
+                    Object.entries(
+                      student.personalityAssessment.reduce((acc, curr) => {
+                        if (!acc[curr.category]) acc[curr.category] = { sum: 0, count: 0 };
+                        acc[curr.category].sum += curr.score;
+                        acc[curr.category].count += 1;
+                        return acc;
+                      }, {} as Record<string, { sum: number; count: number }>)
+                    ).map(([trait, data]) => {
+                      const avg = data.sum / data.count;
+                      const percentage = (avg / 5) * 100;
+                      return (
+                        <div key={trait} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium">{trait}</span>
+                            <span className="text-muted-foreground">{Math.round(percentage)}%</span>
+                          </div>
+                          <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                            <div className="h-full gradient-primary rounded-full" style={{ width: `${percentage}%` }}></div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No personality data available.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 bg-primary/5">
+              <CardHeader><CardTitle className="text-lg">Soft Skills Profile</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {student.softSkillsAssessment && student.softSkillsAssessment.length > 0 ? (
+                    student.softSkillsAssessment.map((skill) => {
+                      const percentage = (skill.score / 5) * 100;
+                      return (
+                        <div key={skill.category} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium">{skill.category}</span>
+                            <span className="text-muted-foreground">{skill.score}/5</span>
+                          </div>
+                          <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-accent-foreground rounded-full" style={{ width: `${percentage}%` }}></div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No soft skills data available.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

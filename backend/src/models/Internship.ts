@@ -20,10 +20,15 @@ export interface IInternship extends Document {
   salaryMax?: number;
   mode: 'online' | 'offline' | 'hybrid';
   city?: string;
+  location?: string;
+  category?: string;
+  roleTitle?: string;
+  volunteerHours: number;
   seatsAvailable: number;
   applicationDeadline: string;
+  status: 'pending' | 'approved' | 'rejected';
   exam?: {
-    duration: number; // minutes
+    duration: number;
     questions: IExamQuestion[];
   };
 }
@@ -42,14 +47,19 @@ const InternshipSchema = new Schema<IInternship>({
   title: { type: String, required: true },
   description: { type: String, required: true },
   requiredSkills: { type: [String], default: [] },
-  duration: { type: String, required: true },
+  duration: { type: String, required: false, default: '' },
   isPaid: { type: Boolean, default: false },
   salaryMin: { type: Number },
   salaryMax: { type: Number },
   mode: { type: String, enum: ['online', 'offline', 'hybrid'], required: true },
   city: { type: String },
+  location: { type: String },
+  category: { type: String, enum: ['Frontend Development', 'Backend Development', 'Database Development'], default: 'Frontend Development' },
+  roleTitle: { type: String, default: '' },
+  volunteerHours: { type: Number, default: 0 },
   seatsAvailable: { type: Number, default: 5 },
   applicationDeadline: { type: String, required: true },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   exam: {
     duration: Number,
     questions: [ExamQuestionSchema]

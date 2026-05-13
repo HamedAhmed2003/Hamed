@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppUser, UserRole, StudentProfile } from '@/types';
-import { authService } from '@/services/api';
+import { authService, injectAuthStore } from '@/services/api';
 
 interface AuthState {
   user: AppUser | null;
@@ -20,14 +20,16 @@ interface AuthState {
   updateProfile: (data: Partial<AppUser>) => Promise<void>;
   updateSkills: (skills: string[]) => void;
   loadUser: () => Promise<void>;
+  completeOnboardingState: () => void;
+  toggleSavedOpportunityState: (opportunityId: string, savedOpportunities: string[]) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      token: localStorage.getItem('token') || null,
-      isAuthenticated: !!localStorage.getItem('token'),
+      token: null,
+      isAuthenticated: false,
       isAuthLoading: true,
       isLoading: false,
       otpSent: false,
@@ -37,7 +39,7 @@ export const useAuthStore = create<AuthState>()(
     set({ isLoading: true });
     try {
       const { data } = await authService.login(email, password, role);
-      localStorage.setItem('token', data.token);
+      sessionStorage.setItem('token', data.token);
       set({ user: data.user, token: data.token, isAuthenticated: true, isLoading: false, isAuthLoading: false });
       return true;
     } catch (err: any) {
@@ -74,7 +76,7 @@ export const useAuthStore = create<AuthState>()(
     set({ isLoading: true });
     try {
       const { data } = await authService.verifyOtp(email, otp);
-      localStorage.setItem('token', data.token);
+      sessionStorage.setItem('token', data.token);
       set({ user: data.user, token: data.token, isAuthenticated: true, isLoading: false, otpSent: false, isAuthLoading: false, otpEmail: '' });
       return true;
     } catch (err: any) {
@@ -84,8 +86,10 @@ export const useAuthStore = create<AuthState>()(
   },
 
   logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    // Clear Zustand persist storage to prevent stale role rehydration on next load
+    try { sessionStorage.removeItem('auth-storage'); } catch { /* ignore */ }
     set({ user: null, token: null, isAuthenticated: false, otpSent: false, otpEmail: '', isAuthLoading: false });
   },
 
@@ -94,7 +98,7 @@ export const useAuthStore = create<AuthState>()(
       const res = await authService.updateProfile(data as Record<string, unknown>);
       set(state => {
         const newUser = state.user ? { ...state.user, ...res.data } as AppUser : null;
-        if (newUser) localStorage.setItem('user', JSON.stringify(newUser));
+        if (newUser) sessionStorage.setItem('user', JSON.stringify(newUser));
         return { user: newUser };
       });
     } catch (err) {
@@ -109,28 +113,52 @@ export const useAuthStore = create<AuthState>()(
     return {};
   }),
 
+  completeOnboardingState: () => set(state => {
+    if (state.user?.role === 'student') {
+      return { user: { ...state.user, hasCompletedOnboarding: true } as StudentProfile };
+    }
+    return {};
+  }),
+
   loadUser: async () => {
-    const currentToken = get().token || localStorage.getItem('token');
+    const currentToken = get().token || sessionStorage.getItem('token');
     if (!currentToken) {
       set({ user: null, token: null, isAuthenticated: false, isAuthLoading: false });
       return;
     }
-    
+
     // Ensure token is synced so that Axios requests can use it
-    if (!localStorage.getItem('token')) {
-      localStorage.setItem('token', currentToken);
+    if (!sessionStorage.getItem('token')) {
+      sessionStorage.setItem('token', currentToken);
     }
 
     set({ isAuthLoading: true });
     try {
       const { data } = await authService.getProfile();
+      // Validate that the profile role matches — prevents stale role in Zustand
+      if (!data || !data.role) {
+        throw new Error('Invalid profile response');
+      }
       set({ user: data, token: currentToken, isAuthenticated: true, isAuthLoading: false });
     } catch {
-      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
+      try { sessionStorage.removeItem('auth-storage'); } catch { /* ignore */ }
       set({ user: null, token: null, isAuthenticated: false, isAuthLoading: false });
     }
   },
+
+  toggleSavedOpportunityState: (opportunityId, savedOpportunities) => set(state => {
+    if (state.user?.role === 'student') {
+      const newUser = { ...state.user, savedOpportunities } as StudentProfile;
+      sessionStorage.setItem('user', JSON.stringify(newUser));
+      return { user: newUser };
+    }
+    return {};
+  }),
 }), {
   name: 'auth-storage',
+  storage: createJSONStorage(() => sessionStorage),
   partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated })
 }));
+
+injectAuthStore(useAuthStore);

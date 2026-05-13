@@ -1,5 +1,10 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IPersonalitySnapshot {
+  trait: string;
+  score: number;
+}
+
 export interface IApplication extends Document {
   internshipId: mongoose.Types.ObjectId;
   internshipTitle: string;
@@ -16,7 +21,18 @@ export interface IApplication extends Document {
   status: 'pending' | 'accepted' | 'rejected';
   skillMatch?: number;
   appliedAt: Date;
+  acceptedAt?: Date;
+  hoursEarned: number;
+  // Personality data snapshot at time of application (for org viewing)
+  softSkillsSnapshot?: IPersonalitySnapshot[];
+  personalitySnapshot?: IPersonalitySnapshot[];
+  compatibilityScore?: number; // Placeholder for future AI scoring
 }
+
+const PersonalitySnapshotSchema = new Schema<IPersonalitySnapshot>({
+  trait: { type: String, required: true },
+  score: { type: Number, required: true },
+});
 
 const ApplicationSchema = new Schema<IApplication>({
   internshipId: { type: Schema.Types.ObjectId, ref: 'Internship', required: true },
@@ -34,6 +50,13 @@ const ApplicationSchema = new Schema<IApplication>({
   status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
   skillMatch: { type: Number, default: 0 },
   appliedAt: { type: Date, default: Date.now },
+  acceptedAt: { type: Date },
+  hoursEarned: { type: Number, default: 0 },
+  softSkillsSnapshot: { type: [PersonalitySnapshotSchema], default: [] },
+  personalitySnapshot: { type: [PersonalitySnapshotSchema], default: [] },
+  compatibilityScore: { type: Number, default: 0 },
 }, { timestamps: true });
+
+ApplicationSchema.index({ studentId: 1, internshipId: 1 }, { unique: true });
 
 export default mongoose.model<IApplication>('Application', ApplicationSchema);

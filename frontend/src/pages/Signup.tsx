@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { useAuthStore } from '@/store/authStore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +22,9 @@ const companySchema = z.object({
 });
 
 export default function SignupPage() {
-  const [role, setRole] = useState<'student' | 'company'>('student');
+  const [searchParams] = useSearchParams();
+  const initialRole = searchParams.get('role') === 'company' ? 'company' : 'student';
+  const [role, setRole] = useState<'student' | 'company'>(initialRole);
   const [form, setForm] = useState({ username: '', companyName: '', email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { signup, sendOtp, isLoading } = useAuthStore();

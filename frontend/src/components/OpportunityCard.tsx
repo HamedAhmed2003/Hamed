@@ -1,0 +1,191 @@
+import { Link } from 'react-router-dom';
+import { Opportunity } from '@/types';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Briefcase, MapPin, Clock, Bookmark, Sparkles, User as UserIcon } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
+import { useState, useEffect } from 'react';
+import { onboardingService } from '@/services/api';
+import { toast } from 'sonner';
+import { getImageUrl } from '@/utils/imageUrl';
+
+interface OpportunityCardProps {
+  opportunity: Opportunity;
+  onSaveToggle?: () => void; // Callback to refresh saved list if needed
+}
+
+export function OpportunityCard({ opportunity, onSaveToggle }: OpportunityCardProps) {
+  const { user, toggleSavedOpportunityState } = useAuthStore();
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'student') {
+      const student = user as any;
+      const oppId = opportunity.id || opportunity._id;
+      setIsSaved(student.savedOpportunities?.includes(oppId) || false);
+    } else {
+      setIsSaved(false);
+    }
+  }, [user, opportunity]);
+
+  const handleSaveToggle = async (e: React.MouseEvent) => {
+    e.preventDefault(); // prevent navigation
+    
+    if (!user) {
+      toast.error('Please login as a student to bookmark opportunities', {
+        description: 'Only technical volunteers can save opportunities to their profile.',
+        action: {
+          label: 'Login',
+          onClick: () => window.location.href = '/login'
+        }
+      });
+      return;
+    }
+
+    if (user.role !== 'student') {
+      toast.error('Only students can bookmark opportunities');
+      return;
+    }
+    
+    setIsSaving(true);
+    const oppId = opportunity.id || (opportunity as any)._id;
+
+    try {
+      const res = await onboardingService.toggleSave(oppId);
+      // res.data contains { saved: boolean, savedOpportunities: string[] }
+      setIsSaved(res.data.saved);
+      
+      // Update global auth store state immediately
+      toggleSavedOpportunityState(oppId, res.data.savedOpportunities);
+      
+      toast.success(res.data.saved ? 'Opportunity bookmarked' : 'Bookmark removed');
+      
+      if (onSaveToggle) onSaveToggle();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update bookmark');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Deterministic match percentage based on userId + opportunityId
+  const getMatchScore = () => {
+    if (!user || user.role !== 'student') return null;
+    const student = user as any;
+    
+    const userIdStr = String(user.id || (user as any)._id || '');
+    const oppIdStr = String(opportunity.id || opportunity._id || '');
+    
+    // Simple deterministic hash
+    let hash = 0;
+    const seed = userIdStr + oppIdStr;
+    for (let i = 0; i < seed.length; i++) {
+      hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+      hash |= 0;
+    }
+    
+    const absHash = Math.abs(hash);
+    let score = 70 + (absHash % 21); // 70-90 range
+    
+    // Bonus for interest match
+    if (student.interests?.some((int: string) => 
+      opportunity.category?.toLowerCase().includes(int.toLowerCase())
+    )) {
+      score = Math.min(98, score + 8);
+    }
+    
+    return score;
+  };
+
+  const matchScore = getMatchScore();
+
+  return (
+    <Link to={`/internships/${opportunity.id || opportunity._id}`}>
+      <Card className="card-premium group h-full flex flex-col hover:border-primary/30 transition-all cursor-pointer relative overflow-hidden">
+        {/* Match score badge (top right) */}
+        {matchScore && (
+          <div className="absolute top-4 right-4 bg-primary/10 text-primary text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 z-10 border border-primary/20">
+            <Sparkles className="h-3 w-3" />
+            {matchScore}% Match
+          </div>
+        )}
+
+        <CardContent className="p-6 flex flex-col flex-grow">
+          <div className="flex gap-4 mb-4">
+            <div className="w-14 h-14 rounded-xl bg-accent flex items-center justify-center shrink-0 border border-border shadow-sm group-hover:scale-105 transition-transform overflow-hidden">
+              {getImageUrl((opportunity as any).companyId?.logo || opportunity.companyLogo) ? (
+                <img src={getImageUrl((opportunity as any).companyId?.logo || opportunity.companyLogo)} alt={opportunity.companyName} className="w-full h-full object-cover" />
+              ) : (
+                <Briefcase className="h-6 w-6 text-muted-foreground" />
+              )}
+            </div>
+            <div>
+              <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors line-clamp-1">
+                {opportunity.title}
+              </h3>
+              <p className="text-sm font-medium text-muted-foreground line-clamp-1">
+                {opportunity.companyName}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-4">
+            <Badge variant="secondary" className="bg-primary/5 text-primary-foreground/70 hover:bg-primary/10 text-xs font-medium border-primary/10 text-primary">
+              {opportunity.category || 'Frontend Development'}
+            </Badge>
+            <Badge variant="outline" className="text-xs text-muted-foreground">
+              {opportunity.mode}
+            </Badge>
+            {opportunity.exam?.questions?.length ? (
+              <Badge variant="outline" className="text-xs border-purple-200 text-purple-600 bg-purple-50">
+                Assessment Req.
+              </Badge>
+            ) : null}
+          </div>
+
+          <p className="text-sm text-muted-foreground line-clamp-2 mb-6 flex-grow">
+            {opportunity.description}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground font-medium border-t border-border/50 pt-4 mt-auto">
+            <div className="flex items-center gap-1.5">
+              <MapPin className="h-4 w-4" />
+              <span>{opportunity.location || opportunity.city || 'Remote'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-4 w-4" />
+              <span>{(opportunity as any).volunteerHours > 0 ? `${(opportunity as any).volunteerHours} Hours` : opportunity.duration}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <UserIcon className="h-4 w-4" />
+              <span>{opportunity.seatsAvailable || 5} spots</span>
+            </div>
+          </div>
+          
+          <div className="mt-4 flex items-center justify-between">
+             <div className="text-sm font-semibold">
+              {opportunity.isPaid ? (
+                <span className="text-success">${opportunity.salaryMin} - ${opportunity.salaryMax} /mo</span>
+              ) : (
+                <span className="text-muted-foreground">Unpaid / Volunteer</span>
+              )}
+            </div>
+            {user?.role === 'student' && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className={`h-8 w-8 rounded-full ${isSaved ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-primary hover:bg-primary/5'}`}
+                onClick={handleSaveToggle}
+                disabled={isSaving}
+              >
+                <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} />
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}

@@ -14,6 +14,7 @@ interface InternshipState {
   applyToInternship: (application: Application) => void;
   updateApplicationStatus: (id: string, status: 'accepted' | 'rejected') => Promise<void>;
   fetchStudentApplications: () => Promise<void>;
+  fetchMyApplications: () => Promise<void>; // alias for fetchStudentApplications
   fetchCompanyApplications: () => Promise<void>;
   fetchInternshipApplications: (internshipId: string) => Promise<Application[]>;
   getStudentApplications: (studentId: string) => Application[];
@@ -71,6 +72,13 @@ export const useInternshipStore = create<InternshipState>((set, get) => ({
   },
 
   fetchStudentApplications: async () => {
+    try {
+      const { data } = await applicationService.getMyApplications();
+      set({ applications: data });
+    } catch { /* empty */ }
+  },
+
+  fetchMyApplications: async () => {
     try {
       const { data } = await applicationService.getMyApplications();
       set({ applications: data });

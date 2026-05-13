@@ -1,10 +1,24 @@
 import { Router } from 'express';
-import { getInternships, getInternshipById, createInternship, updateInternship, deleteInternship, getExam } from '../controllers/internshipController';
-import { protect, authorize } from '../middlewares/auth';
+import {
+  getInternships,
+  getMyInternships,
+  getInternshipById,
+  createInternship,
+  updateInternship,
+  deleteInternship,
+  getExam
+} from '../controllers/internshipController';
+import { protect, authorize, optionalProtect } from '../middlewares/auth';
 
 const router = Router();
 
-router.get('/', getInternships);
+// Public listing — optionalProtect lets the controller distinguish company users
+// so they can see all their own opportunities (pending/rejected/approved)
+router.get('/', optionalProtect, getInternships);
+
+// Protected: company's own opportunities (all statuses) — used by dashboard & manage pages
+router.get('/mine', protect, authorize('company'), getMyInternships);
+
 router.get('/:id', getInternshipById);
 router.post('/', protect, authorize('company'), createInternship);
 router.put('/:id', protect, authorize('company'), updateInternship);

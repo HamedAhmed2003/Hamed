@@ -118,8 +118,8 @@ export const verifyEmail = async (req: Request, res: Response) => {
     await user.save();
 
     const token = generateToken(user.id);
+    // toObject() applies the global transform: adds id, strips password/verificationCode/otpExpiresAt
     const userObj = user.toObject();
-    delete userObj.password;
 
     return sendSuccess(res, 200, { user: userObj, token }, 'Email verified successfully');
   } catch (error: any) {
@@ -150,8 +150,8 @@ export const login = async (req: Request, res: Response) => {
     // }
 
     const token = generateToken(user.id);
+    // toObject() applies the global transform: adds id, strips password/verificationCode/otpExpiresAt
     const userObj = user.toObject();
-    delete userObj.password;
 
     return sendSuccess(res, 200, { user: userObj, token }, 'Login successful');
   } catch (error: any) {
@@ -161,7 +161,9 @@ export const login = async (req: Request, res: Response) => {
 
 export const getProfile = async (req: AuthRequest, res: Response) => {
   if (!req.user) return sendError(res, 404, 'User not found');
-  return sendSuccess(res, 200, req.user, 'Profile fetched successfully');
+  // Serialize via toObject() so the global transform adds `id` and strips sensitive fields
+  const userObj = (req.user as any).toObject ? (req.user as any).toObject() : req.user;
+  return sendSuccess(res, 200, userObj, 'Profile fetched successfully');
 };
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {
@@ -187,8 +189,12 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     });
 
     if (req.file) {
-      // Cloud storage logic normally here, but we will mock URL for now
-      user.profileImage = `/uploads/${req.file.filename}`;
+      const filePath = `/uploads/${req.file.filename}`;
+      if (user.role === 'company') {
+        user.logo = filePath;
+      } else {
+        user.profileImage = filePath;
+      }
     }
 
     await user.save();

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MapPin, Clock, DollarSign, Monitor, Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getImageUrl } from '@/utils/imageUrl';
 
 interface InternshipCardProps {
   internship: Internship;
@@ -20,10 +21,17 @@ export function InternshipCard({ internship, skillMatch, showApply = true }: Int
   return (
     <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-border/50">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-lg truncate text-foreground">{internship.title}</h3>
-            <p className="text-sm text-muted-foreground">{internship.companyName}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-accent shrink-0 border border-border overflow-hidden flex items-center justify-center">
+               {getImageUrl((internship as any).companyId?.logo || internship.companyLogo) ? (
+                 <img src={getImageUrl((internship as any).companyId?.logo || internship.companyLogo)} className="w-full h-full object-cover" alt="" />
+               ) : <Building2 className="h-5 w-5 text-muted-foreground" />}
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-lg truncate text-foreground">{internship.title}</h3>
+              <p className="text-sm text-muted-foreground">{internship.companyName}</p>
+            </div>
           </div>
           {skillMatch !== undefined && (
             <div className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
@@ -47,7 +55,10 @@ export function InternshipCard({ internship, skillMatch, showApply = true }: Int
           )}
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{internship.duration}</span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            {(internship as any).volunteerHours > 0 ? `${(internship as any).volunteerHours} Hours` : internship.duration}
+          </span>
           <span className="flex items-center gap-1 capitalize"><ModeIcon className="h-3.5 w-3.5" />{internship.mode}</span>
           {internship.isPaid && internship.salaryMin != null && (
             <span className="flex items-center gap-1 text-primary font-medium">

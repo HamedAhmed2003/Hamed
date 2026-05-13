@@ -1,17 +1,53 @@
 import { Response } from 'express';
 import Internship, { IInternship } from '../models/Internship';
+import Application from '../models/Application';
+import Notification from '../models/Notification';
 import { AuthRequest } from '../middlewares/auth';
 import { sendSuccess, sendError } from '../utils/responseWrapper';
 import User from '../models/User';
+import { createNotification } from './notificationController';
 
 export const getInternships = async (req: AuthRequest, res: Response) => {
   try {
     const filters: any = {};
     if (req.query.mode) filters.mode = req.query.mode;
     if (req.query.isPaid === 'true') filters.isPaid = true;
+    if (req.query.category) filters.category = req.query.category;
 
-    const internships = await Internship.find(filters).sort({ createdAt: -1 });
-    return sendSuccess(res, 200, internships, 'Internships fetched successfully');
+    // Public listing — only show admin-approved opportunities
+    const isCompany = req.user?.role === 'company';
+    const isAdmin = req.user?.role === 'admin';
+    if (!isCompany && !isAdmin) {
+      filters.status = 'approved';
+    }
+
+    // Company can filter their own
+    if (isCompany && req.query.companyId) {
+      filters.companyId = req.query.companyId;
+    }
+
+    const internships = await Internship.find(filters)
+      .populate('companyId', 'companyName logo')
+      .sort({ createdAt: -1 });
+  return sendSuccess(res, 200, internships, 'Opportunities fetched successfully');
+  } catch (error: any) {
+    return sendError(res, 500, error.message);
+  }
+};
+
+/**
+ * GET /internships/mine
+ * Returns all opportunities for the authenticated company regardless of status.
+ * Used exclusively by the company dashboard and internship management pages.
+ */
+export const getMyInternships = async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = (req.user as any)?._id || (req.user as any)?.id;
+    if (!companyId) return sendError(res, 401, 'Not authorized');
+    const internships = await Internship.find({ companyId })
+      .populate('companyId', 'companyName logo')
+      .sort({ createdAt: -1 });
+    return sendSuccess(res, 200, internships, 'My opportunities fetched successfully');
   } catch (error: any) {
     return sendError(res, 500, error.message);
   }
@@ -21,7 +57,7 @@ export const getInternshipById = async (req: AuthRequest, res: Response) => {
   try {
     const internship = await Internship.findById(req.params.id);
     if (!internship) return sendError(res, 404, 'Internship not found');
-    
+
     // Do not return exam correct answers
     if (internship.exam) {
       internship.exam.questions = internship.exam.questions.map(q => {
@@ -39,30 +75,63 @@ export const getInternshipById = async (req: AuthRequest, res: Response) => {
 
 export const createInternship = async (req: AuthRequest, res: Response) => {
   try {
-    const { 
-      title, description, requiredSkills, duration, isPaid, 
-      salaryMin, salaryMax, mode, city, seatsAvailable, 
-      applicationDeadline, exam 
+    const {
+      title, description, requiredSkills, duration, isPaid,
+      salaryMin, salaryMax, mode, city, location, category, roleTitle,
+      seatsAvailable, applicationDeadline, exam, volunteerHours
     } = req.body;
 
+    const vh = Number(volunteerHours);
+    if (!volunteerHours || isNaN(vh) || vh < 1 || vh > 140) {
+      return sendError(res, 400, 'Volunteer hours must be between 1 and 140');
+    }
+
+    // Use _id from live Mongoose Document (never deleted by toJSON since this is the Document instance)
+    const companyId = (req.user as any)?._id || (req.user as any)?.id;
+    const companyName = req.user?.companyName || (req.user as any)?.companyName;
+
+    if (!companyId) return sendError(res, 401, 'Not authorized');
+
     const internship = await Internship.create({
-      companyId: req.user?._id,
-      companyName: req.user?.companyName,
+      companyId,
+      companyName,
+      companyLogo: req.user?.logo || (req.user as any)?.logo,
       title,
       description,
       requiredSkills,
-      duration,
+      duration: duration || `${vh} hours`,
       isPaid,
       salaryMin,
       salaryMax,
       mode,
       city,
+      location,
+      category: category || 'Frontend Development',
+      roleTitle: roleTitle || '',
       seatsAvailable,
       applicationDeadline,
-      exam
-    });
+      exam,
+      volunteerHours: vh,
+      status: 'pending',
+    } as any);
 
-    return sendSuccess(res, 201, internship, 'Internship created successfully');
+    // Find admin(s) and notify them
+    const admins = await User.find({ role: 'admin' }).select('_id');
+    for (const admin of admins) {
+      await createNotification({
+        recipientId: String((admin as any)._id || (admin as any).id),
+        recipientRole: 'admin',
+        senderId: String(companyId),
+        senderName: companyName,
+        type: 'opportunity_submitted',
+        title: 'New Opportunity Submitted',
+        message: `${companyName} submitted a new opportunity: "${title}" for review.`,
+        relatedId: String((internship as any)._id || (internship as any).id),
+        relatedType: 'opportunity',
+      });
+    }
+
+    return sendSuccess(res, 201, internship, 'Opportunity submitted for admin approval');
   } catch (error: any) {
     return sendError(res, 500, error.message);
   }
@@ -73,8 +142,17 @@ export const updateInternship = async (req: AuthRequest, res: Response) => {
     const internship = await Internship.findById(req.params.id);
     if (!internship) return sendError(res, 404, 'Internship not found');
 
-    if (internship.companyId.toString() !== req.user?._id?.toString()) {
+    const ownerId = String(internship.companyId);
+    const requesterId = String((req.user as any)?._id || (req.user as any)?.id);
+    if (ownerId !== requesterId) {
       return sendError(res, 403, 'Not authorized to update this internship');
+    }
+
+    if (req.body.volunteerHours !== undefined) {
+      const vh = Number(req.body.volunteerHours);
+      if (isNaN(vh) || vh < 1 || vh > 140) {
+        return sendError(res, 400, 'Volunteer hours must be between 1 and 140');
+      }
     }
 
     const updated = await Internship.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -89,12 +167,33 @@ export const deleteInternship = async (req: AuthRequest, res: Response) => {
     const internship = await Internship.findById(req.params.id);
     if (!internship) return sendError(res, 404, 'Internship not found');
 
-    if (internship.companyId.toString() !== req.user?._id?.toString() && req.user?.role !== 'admin') {
+    const ownerId = String(internship.companyId);
+    const requesterId = String((req.user as any)?._id || (req.user as any)?.id);
+    const isAdmin = req.user?.role === 'admin';
+
+    if (ownerId !== requesterId && !isAdmin) {
       return sendError(res, 403, 'Not authorized to delete this internship');
     }
 
+    const internshipId = (internship as any)._id;
+
+    // Pre-fetch related applications to cascade their notifications
+    const apps = await Application.find({ internshipId });
+    const appIds = apps.map(app => String((app as any)._id || (app as any).id));
+
+    // Cascade: remove all related applications
+    await Application.deleteMany({ internshipId });
+
+    // Cascade: remove all notifications related to this opportunity OR its applications
+    await Notification.deleteMany({
+      $or: [
+        { relatedId: internshipId.toString(), relatedType: 'opportunity' },
+        { relatedId: { $in: appIds }, relatedType: 'application' }
+      ]
+    });
+
     await internship.deleteOne();
-    return sendSuccess(res, 200, null, 'Internship deleted successfully');
+    return sendSuccess(res, 200, null, 'Internship and all related data deleted successfully');
   } catch (error: any) {
     return sendError(res, 500, error.message);
   }

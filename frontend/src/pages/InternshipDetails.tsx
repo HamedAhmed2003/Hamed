@@ -1,148 +1,235 @@
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AppLayout } from '@/components/AppLayout';
-import { useInternshipStore } from '@/store/internshipStore';
+import { opportunityService, applicationService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
-import { StudentProfile } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { AppLayout } from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
-import { calculateSkillMatch } from '@/lib/helpers';
-import { MapPin, Clock, DollarSign, Monitor, Building2, Users, Calendar } from 'lucide-react';
-import { useEffect } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
-
-const modeIcons = { online: Monitor, offline: MapPin, hybrid: Building2 };
+import { Briefcase, MapPin, Clock, Users, ArrowLeft, Send, Sparkles, AlertCircle } from 'lucide-react';
+import { Opportunity } from '@/types';
+import { getImageUrl } from '@/utils/imageUrl';
 
 export default function InternshipDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getInternship, applications, applyToInternship } = useInternshipStore();
-  const user = useAuthStore(s => s.user);
-  const internship = getInternship(id!);
+  const { user } = useAuthStore();
+  
+  const [opportunity, setOpportunity] = useState<Opportunity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
 
-
-  if (!internship) return <AppLayout><p className="text-center py-12 text-muted-foreground">Internship not found</p></AppLayout>;
-
-  const ModeIcon = modeIcons[internship.mode];
-  const studentSkills = user?.role === 'student' ? (user as StudentProfile).skills : [];
-  const skillMatch = studentSkills.length > 0 ? calculateSkillMatch(studentSkills, internship.requiredSkills) : null;
-  const alreadyApplied = user ? applications.some(a => a.internshipId === internship.id && a.studentId === user.id) : false;
+  useEffect(() => {
+    if (id) {
+      opportunityService.getById(id)
+        .then(res => setOpportunity(res.data))
+        .catch(err => {
+          toast.error(err.message || 'Failed to load opportunity details');
+          navigate('/internships');
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [id, navigate]);
 
   const handleApply = async () => {
-    if (!user) { navigate('/login'); return; }
-
-    const applyDirectly = async () => {
-      try {
-        const { applicationService } = await import('@/services/api');
-        const { data } = await applicationService.apply(internship.id, {});
-        applyToInternship(data);
-        toast.success('Successfully applied to internship!');
-        navigate('/student/dashboard');
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to apply');
-      }
-    };
-
-    if (internship.exam && internship?.id) {
-      if (internship.exam.questions && internship.exam.questions.length > 0) {
-        navigate(`/exam/${internship.id}`);
-      } else {
-        toast.error("Exam not found, applying directly...");
-        await applyDirectly();
-      }
+    if (!user) {
+      toast.error('Please login to apply');
+      return navigate('/login');
     }
-    else {
-      await applyDirectly();
+    if (user.role !== 'student') {
+      return toast.error('Only volunteers can apply to opportunities');
+    }
+
+    // Check if the opportunity requires an assessment
+    if (opportunity?.exam && opportunity.exam.questions && opportunity.exam.questions.length > 0) {
+      return navigate(`/exam/${opportunity._id || opportunity.id}`);
+    }
+
+    setApplying(true);
+    try {
+      await applicationService.apply(id!, {});
+      toast.success('Successfully applied!');
+      navigate('/student/dashboard');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to apply');
+    } finally {
+      setApplying(false);
     }
   };
 
+  // Fake skill match percentage based on user interests vs category
+  const getMatchScore = () => {
+    if (!user || user.role !== 'student' || !opportunity) return null;
+    const student = user as any;
+    if (student.interests?.includes(opportunity.category?.toLowerCase() || '')) {
+      return 95;
+    }
+    return 75; // Placeholder AI match
+  };
+
+  const matchScore = getMatchScore();
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!opportunity) return null;
+
   return (
     <AppLayout>
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">{internship.title}</h1>
-            <p className="text-lg text-muted-foreground">{internship.companyName}</p>
-          </div>
-          {skillMatch !== null && (
-            <div className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${skillMatch >= 75 ? 'gradient-primary text-primary-foreground' :
-              skillMatch >= 50 ? 'bg-warning/10 text-warning' :
-                'bg-muted text-muted-foreground'
-              }`}>
-              {skillMatch}% Skill Match
-            </div>
-          )}
-        </div>
+      <div className="bg-primary/5 border-b border-border/50 py-12 animate-fade-in">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <Button variant="ghost" onClick={() => navigate(-1)} className="mb-6 -ml-4 text-muted-foreground hover:text-primary">
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to opportunities
+          </Button>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { icon: Clock, label: 'Duration', value: internship.duration },
-            { icon: ModeIcon, label: 'Mode', value: internship.mode },
-            { icon: Users, label: 'Seats', value: `${internship.seatsAvailable} available` },
-            { icon: Calendar, label: 'Deadline', value: internship.applicationDeadline },
-          ].map(item => (
-            <Card key={item.label} className="border-border/50">
-              <CardContent className="p-3 flex items-center gap-2">
-                <item.icon className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="text-sm font-medium capitalize">{item.value}</p>
+          <div className="flex flex-col md:flex-row gap-6 items-start justify-between">
+            <div className="flex gap-6 items-start">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-card flex items-center justify-center shrink-0 border border-border shadow-sm overflow-hidden">
+                {getImageUrl((opportunity as any).companyId?.logo || opportunity.companyLogo) ? (
+                  <img src={getImageUrl((opportunity as any).companyId?.logo || opportunity.companyLogo)} alt={opportunity.companyName} className="w-full h-full object-cover" />
+                ) : (
+                  <Briefcase className="h-10 w-10 text-muted-foreground" />
+                )}
+              </div>
+              <div className="space-y-2">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">{opportunity.title}</h1>
+                <p className="text-xl text-muted-foreground">{opportunity.companyName}</p>
+                
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20">
+                    {opportunity.category || 'Frontend Development'}
+                  </Badge>
+                  <Badge variant="outline">{opportunity.mode}</Badge>
+                  {opportunity.exam?.questions?.length ? (
+                    <Badge variant="outline" className="border-purple-200 text-purple-600 bg-purple-50">
+                      Assessment Required
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {user?.role !== 'company' && user?.role !== 'admin' && (
+              <div className="w-full md:w-auto flex flex-col items-center md:items-end gap-3 mt-4 md:mt-0">
+                {matchScore && (
+                  <div className="flex items-center gap-2 text-primary font-bold bg-primary/10 px-4 py-2 rounded-full border border-primary/20">
+                    <Sparkles className="h-5 w-5" />
+                    {matchScore}% Personality Match
+                  </div>
+                )}
+                <Button 
+                  size="lg" 
+                  onClick={handleApply} 
+                  disabled={applying}
+                  className="w-full md:w-auto gradient-primary text-primary-foreground h-14 px-8 rounded-full shadow-xl hover:shadow-primary/40 transition-shadow text-lg"
+                >
+                  {applying ? 'Applying...' : opportunity.exam?.questions?.length ? 'Start Assessment' : 'Apply Now'}
+                  <Send className="ml-2 h-5 w-5" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 space-y-8">
+            <section className="animate-slide-up">
+              <h2 className="text-2xl font-bold mb-4">About the Opportunity</h2>
+              <div className="prose dark:prose-invert max-w-none text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                {opportunity.description}
+              </div>
+            </section>
+
+            {opportunity.requiredSkills && opportunity.requiredSkills.length > 0 && (
+              <section className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
+                <h2 className="text-2xl font-bold mb-4">Required Skills</h2>
+                <div className="flex flex-wrap gap-2">
+                  {opportunity.requiredSkills.map(skill => (
+                    <Badge key={skill} variant="secondary" className="px-3 py-1.5 text-sm">
+                      {skill}
+                    </Badge>
+                  ))}
+                </div>
+              </section>
+            )}
+            
+            {opportunity.exam?.questions?.length ? (
+              <section className="animate-slide-up" style={{ animationDelay: '0.2s' }}>
+                <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl p-6 flex gap-4">
+                  <div className="mt-1">
+                    <AlertCircle className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-purple-900 dark:text-purple-300 mb-2">Assessment Required</h3>
+                    <p className="text-purple-700 dark:text-purple-400/80 mb-4">
+                      This organization requires candidates to complete a short skills assessment. 
+                      You will have {opportunity.exam.duration} minutes to complete {opportunity.exam.questions.length} questions.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <div className="space-y-6">
+            <Card className="card-premium animate-slide-up" style={{ animationDelay: '0.1s' }}>
+              <CardContent className="p-6 space-y-6">
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Location</p>
+                    <p>{opportunity.location || opportunity.city || 'Remote'}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Clock className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Volunteer Hours</p>
+                    <p>{(opportunity as any).volunteerHours > 0 ? `${(opportunity as any).volunteerHours} Hours` : (opportunity as any).duration}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Briefcase className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Compensation</p>
+                    <p>
+                      {opportunity.isPaid 
+                        ? `$${opportunity.salaryMin} - $${opportunity.salaryMax} /mo` 
+                        : 'Unpaid / Volunteer'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Users className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Openings</p>
+                    <p>{opportunity.seatsAvailable || 5} spots</p>
+                  </div>
+                </div>
+                
+                <div className="pt-4 border-t border-border/50">
+                  <p className="text-sm text-muted-foreground mb-1">Application Deadline</p>
+                  <p className="font-semibold text-destructive">
+                    {new Date(opportunity.applicationDeadline).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
                 </div>
               </CardContent>
             </Card>
-          ))}
+          </div>
         </div>
-
-        {internship.isPaid && internship.salaryMin != null && (
-          <Card className="border-border/50 bg-primary/5">
-            <CardContent className="p-4 flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-primary" />
-              <span className="font-semibold text-lg text-primary">${internship.salaryMin} – ${internship.salaryMax}</span>
-              <span className="text-muted-foreground text-sm">/ month</span>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card className="border-border/50">
-          <CardHeader><CardTitle>Description</CardTitle></CardHeader>
-          <CardContent><p className="text-muted-foreground leading-relaxed">{internship.description}</p></CardContent>
-        </Card>
-
-        <Card className="border-border/50">
-          <CardHeader><CardTitle>Required Skills</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {internship.requiredSkills.map(skill => {
-                const matched = studentSkills.some(s => s.toLowerCase() === skill.toLowerCase());
-                return (
-                  <Badge key={skill} variant={matched ? 'default' : 'secondary'}
-                    className={matched ? 'gradient-primary text-primary-foreground' : ''}>
-                    {skill} {matched && '✓'}
-                  </Badge>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {internship.exam && (
-          <Card className="border-border/50">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="font-medium">{internship.exam.questions.length > 0 ? "This internship requires an exam" : "This internship does not require an exam"}</p>
-                <p className="text-sm text-muted-foreground">{internship.exam.questions.length} questions • {internship.exam.duration} minutes</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Button
-          onClick={handleApply}
-          disabled={alreadyApplied}
-          className="w-full gradient-primary text-primary-foreground h-12 text-lg"
-        >
-          {alreadyApplied ? 'Already Applied' : internship.exam ? 'Apply & Take Exam' : 'Apply Now'}
-        </Button>
       </div>
     </AppLayout>
   );

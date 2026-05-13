@@ -1,5 +1,12 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IAssessmentResponse {
+  questionId: string;
+  question: string;
+  category: string;
+  score: number; // 1-5
+}
+
 export interface IUser extends Document {
   email: string;
   password?: string;
@@ -8,7 +15,7 @@ export interface IUser extends Document {
   verificationCode?: string;
   otpExpiresAt?: Date;
 
-  // Student specific
+  // Volunteer (Student) specific
   username?: string;
   gender?: 'male' | 'female' | 'other';
   phone?: string;
@@ -17,7 +24,16 @@ export interface IUser extends Document {
   skills?: string[];
   extractedSkills?: string[];
 
-  // Company specific
+  // Volunteer onboarding & personality
+  hasCompletedOnboarding?: boolean;
+  onboardingStep?: number;
+  interests?: string[];
+  availability?: 'weekdays' | 'weekends' | 'both' | 'flexible';
+  softSkillsAssessment?: IAssessmentResponse[];
+  personalityAssessment?: IAssessmentResponse[];
+  savedOpportunities?: string[];
+
+  // Organization (Company) specific
   companyName?: string;
   industry?: string;
   taxRegister?: string;
@@ -25,6 +41,13 @@ export interface IUser extends Document {
   logo?: string;
   isApproved?: boolean;
 }
+
+const AssessmentResponseSchema = new Schema<IAssessmentResponse>({
+  questionId: { type: String, required: true },
+  question: { type: String, required: true },
+  category: { type: String, required: true },
+  score: { type: Number, required: true, min: 1, max: 5 },
+});
 
 const UserSchema = new Schema<IUser>({
   email: { type: String, required: true, unique: true },
@@ -34,7 +57,7 @@ const UserSchema = new Schema<IUser>({
   verificationCode: { type: String },
   otpExpiresAt: { type: Date },
 
-  // Student fields
+  // Volunteer fields
   username: { type: String },
   gender: { type: String, enum: ['male', 'female', 'other'] },
   phone: { type: String },
@@ -43,13 +66,22 @@ const UserSchema = new Schema<IUser>({
   skills: { type: [String], default: [] },
   extractedSkills: { type: [String], default: [] },
 
-  // Company fields
+  // Onboarding & personality fields
+  hasCompletedOnboarding: { type: Boolean, default: false },
+  onboardingStep: { type: Number, default: 0 },
+  interests: { type: [String], default: [] },
+  availability: { type: String, enum: ['weekdays', 'weekends', 'both', 'flexible'] },
+  softSkillsAssessment: { type: [AssessmentResponseSchema], default: [] },
+  personalityAssessment: { type: [AssessmentResponseSchema], default: [] },
+  savedOpportunities: { type: [String], default: [] },
+
+  // Organization fields
   companyName: { type: String },
   industry: { type: String },
   taxRegister: { type: String },
   description: { type: String },
   logo: { type: String },
-  isApproved: { type: Boolean, default: false }, // Only admin can approve
+  isApproved: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export default mongoose.model<IUser>('User', UserSchema);

@@ -1,223 +1,329 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/AppLayout';
-import { useAuthStore } from '@/store/authStore';
-import { useInternshipStore } from '@/store/internshipStore';
-import type { CompanyProfile } from '@/types';
-import { Internship, ExamQuestion } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import { opportunityService } from '@/services/api';
 import { toast } from 'sonner';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Plus, X, Briefcase, Sparkles } from 'lucide-react';
 
-export default function CreateInternship() {
+const CATEGORIES = [
+  { value: 'Frontend Development', label: 'Frontend Development' },
+  { value: 'Backend Development', label: 'Backend Development' },
+  { value: 'Database Development', label: 'Database Development' },
+];
+
+const ROLE_TITLES: Record<string, string[]> = {
+  'Frontend Development': ['HTML Developer', 'CSS Specialist', 'JavaScript Developer', 'React Developer', 'Vue.js Developer', 'UI/UX Developer'],
+  'Backend Development': ['Node.js Developer', 'PHP Developer', 'Laravel Developer', 'Python Developer', 'API Developer', 'DevOps Engineer'],
+  'Database Development': ['MongoDB Developer', 'MySQL Administrator', 'PostgreSQL Developer', 'Database Architect', 'Data Analyst'],
+};
+
+const SKILL_SUGGESTIONS: Record<string, string[]> = {
+  'Frontend Development': ['HTML', 'CSS', 'JavaScript', 'React', 'TypeScript', 'Tailwind CSS', 'Vue.js', 'Next.js'],
+  'Backend Development': ['Node.js', 'Express', 'PHP', 'Laravel', 'Python', 'Django', 'REST APIs', 'Docker'],
+  'Database Development': ['MongoDB', 'MySQL', 'PostgreSQL', 'Redis', 'Mongoose', 'SQL', 'NoSQL'],
+};
+
+export default function CreateOpportunity() {
   const navigate = useNavigate();
-  const user = useAuthStore(s => s.user) as CompanyProfile;
-  const { addInternship } = useInternshipStore();
+  const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
-    title: '', description: '', duration: '3 months', isPaid: true,
-    salaryMin: '', salaryMax: '', mode: 'online' as 'online' | 'offline' | 'hybrid',
-    city: '', seatsAvailable: '', applicationDeadline: '',
+    title: '',
+    description: '',
+    volunteerHours: 0,
+    mode: '',
+    city: '',
+    location: '',
+    category: '',
+    roleTitle: '',
+    seatsAvailable: 5,
+    applicationDeadline: '',
+    isPaid: false,
+    salaryMin: '',
+    salaryMax: '',
   });
+
   const [skills, setSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState('');
-  const [questions, setQuestions] = useState<Partial<ExamQuestion>[]>([]);
-  const [examDuration, setExamDuration] = useState('15');
 
-  const addSkill = () => {
-    if (newSkill.trim() && !skills.includes(newSkill.trim())) {
-      setSkills([...skills, newSkill.trim()]);
+  const update = (key: string, value: any) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const handleCategoryChange = (cat: string) => {
+    update('category', cat);
+    update('roleTitle', ''); // reset role title
+  };
+
+  const addSkill = (skill?: string) => {
+    const s = (skill || newSkill).trim();
+    if (s && !skills.includes(s)) {
+      setSkills(prev => [...prev, s]);
       setNewSkill('');
     }
   };
 
-  const addQuestion = () => {
-    setQuestions([...questions, { id: `nq-${Date.now()}`, question: '', choices: ['', '', '', ''], correctAnswer: 0, weight: 10 }]);
-  };
+  const removeSkill = (s: string) => setSkills(prev => prev.filter(x => x !== s));
 
-  const updateQuestion = (idx: number, field: string, value: unknown) => {
-    setQuestions(questions.map((q, i) => i === idx ? { ...q, [field]: value } : q));
-  };
-
-  const updateChoice = (qIdx: number, cIdx: number, value: string) => {
-    setQuestions(questions.map((q, i) => {
-      if (i !== qIdx) return q;
-      const choices = [...(q.choices || [])];
-      choices[cIdx] = value;
-      return { ...q, choices };
-    }));
-  };
-
-  const handleSubmit = async () => {
-    if (!form.title || !form.description || skills.length === 0) {
-      toast.error('Please fill in required fields');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title || !form.description || !form.volunteerHours || !form.mode || !form.applicationDeadline || !form.category) {
+      toast.error('Please fill all required fields');
       return;
     }
-    const internshipPayload = {
-      title: form.title,
-      description: form.description,
-      requiredSkills: skills,
-      duration: form.duration,
-      isPaid: form.isPaid,
-      salaryMin: form.isPaid ? Number(form.salaryMin) : undefined,
-      salaryMax: form.isPaid ? Number(form.salaryMax) : undefined,
-      mode: form.mode,
-      city: form.mode !== 'online' ? form.city : undefined,
-      seatsAvailable: Number(form.seatsAvailable) || 5,
-      applicationDeadline: form.applicationDeadline,
-      exam: questions.length > 0 ? {
-        questions: questions.map(({ id, ...rest }) => rest),
-        duration: Number(examDuration),
-      } : undefined,
-    };
-    const result = await addInternship(internshipPayload as unknown as Record<string, unknown>);
-    if (result) {
-      toast.success('Internship created!');
+
+    if (form.volunteerHours < 1 || form.volunteerHours > 140) {
+      toast.error('Volunteer hours must be between 1 and 140');
+      return;
+    }
+    setLoading(true);
+    try {
+      await opportunityService.create({
+        ...form,
+        requiredSkills: skills,
+        salaryMin: form.salaryMin ? Number(form.salaryMin) : undefined,
+        salaryMax: form.salaryMax ? Number(form.salaryMax) : undefined,
+      });
+      toast.success('Opportunity submitted for admin approval! 🎉');
       navigate('/company/internships');
-    } else {
-      toast.error('Failed to create internship');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create opportunity');
+    } finally {
+      setLoading(false);
     }
   };
+
+  const suggestedSkills = SKILL_SUGGESTIONS[form.category] || [];
+  const roleTitles = ROLE_TITLES[form.category] || [];
 
   return (
     <AppLayout>
-      <div className="space-y-6 max-w-2xl animate-fade-in">
-        <h1 className="text-2xl font-bold">Create Internship</h1>
+      <div className="max-w-3xl mx-auto py-8 animate-fade-in">
+        <div className="mb-8 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center shadow-lg shadow-primary/25">
+            <Briefcase className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">Post a New Opportunity</h1>
+            <p className="text-muted-foreground mt-0.5 text-sm">All opportunities require admin approval before going live.</p>
+          </div>
+        </div>
 
-        <Card className="border-border/50">
-          <CardHeader><CardTitle>Internship Details</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g., Frontend Developer Intern" />
-            </div>
-            <div className="space-y-2">
-              <Label>Description *</Label>
-              <Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Info */}
+          <Card className="card-premium">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-base">Basic Information</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-5">
               <div className="space-y-2">
-                <Label>Duration</Label>
-                <Select value={form.duration} onValueChange={v => setForm({ ...form, duration: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['1 month', '2 months', '3 months', '4 months', '5 months', '6 months'].map(d =>
-                      <SelectItem key={d} value={d}>{d}</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="title">Opportunity Title *</Label>
+                <Input id="title" placeholder="e.g., React Frontend Developer Volunteer" value={form.title}
+                  onChange={e => update('title', e.target.value)} className="rounded-xl" required />
               </div>
-              <div className="space-y-2">
-                <Label>Mode</Label>
-                <Select value={form.mode} onValueChange={v => setForm({ ...form, mode: v as 'online' | 'offline' | 'hybrid' })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="online">Online</SelectItem>
-                    <SelectItem value="offline">Offline</SelectItem>
-                    <SelectItem value="hybrid">Hybrid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {form.mode !== 'online' && (
-              <div className="space-y-2">
-                <Label>City</Label>
-                <Input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
-              </div>
-            )}
-            <div className="flex items-center gap-3">
-              <Switch checked={form.isPaid} onCheckedChange={v => setForm({ ...form, isPaid: v })} />
-              <Label>Paid Internship</Label>
-            </div>
-            {form.isPaid && (
-              <div className="grid grid-cols-2 gap-4">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Category */}
                 <div className="space-y-2">
-                  <Label>Min Salary ($)</Label>
-                  <Input type="number" value={form.salaryMin} onChange={e => setForm({ ...form, salaryMin: e.target.value })} />
+                  <Label>Category *</Label>
+                  <Select value={form.category} onValueChange={handleCategoryChange} required>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map(c => (
+                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Role Title */}
+                <div className="space-y-2">
+                  <Label>Role Title</Label>
+                  <Select value={form.roleTitle} onValueChange={v => update('roleTitle', v)} disabled={!form.category}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder={form.category ? 'Select role title' : 'Select category first'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roleTitles.map(r => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Description *</Label>
+                <Textarea id="description" placeholder="Describe the opportunity, responsibilities, and expected impact..."
+                  value={form.description} onChange={e => update('description', e.target.value)}
+                  className="rounded-xl min-h-[120px]" required />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Details */}
+          <Card className="card-premium">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-base">Logistics & Details</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Mode *</Label>
+                  <Select value={form.mode} onValueChange={v => update('mode', v)} required>
+                    <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select mode" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="online">Online</SelectItem>
+                      <SelectItem value="offline">On-site</SelectItem>
+                      <SelectItem value="hybrid">Hybrid</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Max Salary ($)</Label>
-                  <Input type="number" value={form.salaryMax} onChange={e => setForm({ ...form, salaryMax: e.target.value })} />
+                  <Label htmlFor="volunteerHours">Volunteer Hours *</Label>
+                  <Input id="volunteerHours" type="number" min={1} max={140} placeholder="Max 140 hours" value={form.volunteerHours || ''}
+                    onChange={e => update('volunteerHours', Number(e.target.value))} className="rounded-xl" required />
+                  <p className="text-[10px] text-muted-foreground px-1">Maximum 140 hours allowed.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="seats">Available Seats</Label>
+                  <Input id="seats" type="number" min={1} value={form.seatsAvailable}
+                    onChange={e => update('seatsAvailable', Number(e.target.value))} className="rounded-xl" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="deadline">Application Deadline *</Label>
+                  <Input id="deadline" type="date" value={form.applicationDeadline}
+                    onChange={e => update('applicationDeadline', e.target.value)} className="rounded-xl" required />
                 </div>
               </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Seats Available</Label>
-                <Input type="number" value={form.seatsAvailable} onChange={e => setForm({ ...form, seatsAvailable: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Deadline</Label>
-                <Input type="date" value={form.applicationDeadline} onChange={e => setForm({ ...form, applicationDeadline: e.target.value })} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card className="border-border/50">
-          <CardHeader><CardTitle>Required Skills *</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex gap-2">
-              <Input value={newSkill} onChange={e => setNewSkill(e.target.value)} placeholder="Add skill"
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSkill())} />
-              <Button variant="outline" size="icon" onClick={addSkill}><Plus className="h-4 w-4" /></Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {skills.map(s => (
-                <Badge key={s} variant="secondary" className="gap-1 pr-1">
-                  {s}
-                  <button onClick={() => setSkills(skills.filter(sk => sk !== s))} className="ml-1 rounded-full hover:bg-destructive/20 p-0.5">
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Exam (Optional)</CardTitle>
-            <Button variant="outline" size="sm" onClick={addQuestion} className="gap-1"><Plus className="h-4 w-4" /> Add Question</Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {questions.length > 0 && (
-              <div className="space-y-2">
-                <Label>Exam Duration (minutes)</Label>
-                <Input type="number" value={examDuration} onChange={e => setExamDuration(e.target.value)} className="w-32" />
-              </div>
-            )}
-            {questions.map((q, qIdx) => (
-              <div key={q.id} className="p-4 rounded-lg border border-border/50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-sm">Question {qIdx + 1}</p>
-                  <Button variant="ghost" size="icon" onClick={() => setQuestions(questions.filter((_, i) => i !== qIdx))}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-                <Input value={q.question} onChange={e => updateQuestion(qIdx, 'question', e.target.value)} placeholder="Question text" />
-                {q.choices?.map((c, cIdx) => (
-                  <div key={cIdx} className="flex items-center gap-2">
-                    <input type="radio" name={`correct-${qIdx}`} checked={q.correctAnswer === cIdx}
-                      onChange={() => updateQuestion(qIdx, 'correctAnswer', cIdx)} className="accent-primary" />
-                    <Input value={c} onChange={e => updateChoice(qIdx, cIdx, e.target.value)} placeholder={`Choice ${cIdx + 1}`} />
+              {(form.mode === 'offline' || form.mode === 'hybrid') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input id="city" placeholder="e.g., Riyadh" value={form.city}
+                      onChange={e => update('city', e.target.value)} className="rounded-xl" />
                   </div>
-                ))}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+                  <div className="space-y-2">
+                    <Label htmlFor="location">Location / Address</Label>
+                    <Input id="location" placeholder="e.g., King Abdullah District" value={form.location}
+                      onChange={e => update('location', e.target.value)} className="rounded-xl" />
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        <Button onClick={handleSubmit} className="w-full gradient-primary text-primary-foreground h-12 text-lg">
-          Create Internship
-        </Button>
+          {/* Skills */}
+          <Card className="card-premium">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-500" /> Required Skills
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-4">
+              {/* Suggested pills */}
+              {suggestedSkills.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium mb-2">Quick add:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedSkills.map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => addSkill(s)}
+                        className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
+                          skills.includes(s)
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:border-primary hover:text-primary'
+                        }`}
+                      >
+                        {skills.includes(s) ? '✓ ' : '+ '}{s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom skill input */}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add a custom skill..."
+                  value={newSkill}
+                  onChange={e => setNewSkill(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                  className="rounded-xl"
+                />
+                <Button type="button" variant="outline" onClick={() => addSkill()} className="rounded-xl shrink-0">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Added skills */}
+              {skills.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {skills.map(s => (
+                    <span key={s} className="flex items-center gap-1.5 text-sm bg-primary/10 text-primary px-3 py-1.5 rounded-full font-medium border border-primary/20">
+                      {s}
+                      <button type="button" onClick={() => removeSkill(s)} className="hover:text-destructive">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Stipend */}
+          <Card className="card-premium">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="font-semibold">Optional Stipend</p>
+                  <p className="text-sm text-muted-foreground">Does this opportunity offer a stipend or financial support?</p>
+                </div>
+                <Switch
+                  checked={form.isPaid}
+                  onCheckedChange={v => update('isPaid', v)}
+                />
+              </div>
+              {form.isPaid && (
+                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">
+                  <div className="space-y-2">
+                    <Label>Min Stipend (SAR/month)</Label>
+                    <Input type="number" min={0} placeholder="e.g., 500" value={form.salaryMin}
+                      onChange={e => update('salaryMin', e.target.value)} className="rounded-xl" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Max Stipend (SAR/month)</Label>
+                    <Input type="number" min={0} placeholder="e.g., 1500" value={form.salaryMax}
+                      onChange={e => update('salaryMax', e.target.value)} className="rounded-xl" />
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Submit */}
+          <div className="flex gap-3 pb-6">
+            <Button type="button" variant="outline" onClick={() => navigate('/company/internships')} className="rounded-full flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" className="gradient-primary text-white rounded-full flex-1 shadow-lg shadow-primary/25" disabled={loading}>
+              {loading ? 'Submitting...' : 'Submit for Approval'}
+            </Button>
+          </div>
+        </form>
       </div>
     </AppLayout>
   );

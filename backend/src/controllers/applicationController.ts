@@ -1,57 +1,65 @@
 import { Response } from 'express';
 import Application from '../models/Application';
 import Internship from '../models/Internship';
+import User from '../models/User';
 import { AuthRequest } from '../middlewares/auth';
 import { sendSuccess, sendError } from '../utils/responseWrapper';
+import { createNotification } from './notificationController';
 
 export const submitExamAndApply = async (req: AuthRequest, res: Response) => {
   try {
     const { id: internshipId } = req.params;
-    const { answers } = req.body; // Record<string, number> where key = questionId, value = choice index
+    const { answers } = req.body;
     const user = req.user!;
 
     const internship = await Internship.findById(internshipId);
-    if (!internship) return sendError(res, 404, 'Internship not found');
+    if (!internship) return sendError(res, 404, 'Opportunity not found');
 
-    const hasApplied = await Application.findOne({ studentId: user._id, internshipId });
-    if (hasApplied) return sendError(res, 400, 'Already applied to this internship');
+    const userId = (user as any)._id || (user as any).id;
+    const hasApplied = await Application.findOne({ studentId: userId, internshipId });
+    if (hasApplied) return sendError(res, 400, 'Already applied to this opportunity');
 
     let score = 0;
     let totalWeight = 0;
     let percentage = 0;
 
     if (internship.exam && internship.exam.questions.length > 0) {
-      if (!answers) return sendError(res, 400, 'Answers are required for this internship');
-      
       internship.exam.questions.forEach(q => {
         totalWeight += q.weight;
-        // The id from frontend might be object id string, but actually in mongoose it's _id
         const qId = (q as any)._id?.toString() || (q as any).id;
-        if (answers[qId] === q.correctAnswer) {
+        if (answers && answers[qId] === q.correctAnswer) {
           score += q.weight;
         }
       });
       percentage = totalWeight > 0 ? Math.round((score / totalWeight) * 100) : 0;
     }
 
-    // Calculate basic skill match
+    // Calculate skill match
     let matchCount = 0;
     const reqSkills = internship.requiredSkills || [];
     const userSkills = user.skills || [];
     if (reqSkills.length > 0) {
       reqSkills.forEach(sk => {
-        if (userSkills.some(us => us.toLowerCase() === sk.toLowerCase())) {
-          matchCount++;
-        }
+        if (userSkills.some(us => us.toLowerCase() === sk.toLowerCase())) matchCount++;
       });
     }
     const skillMatch = reqSkills.length > 0 ? Math.round((matchCount / reqSkills.length) * 100) : 0;
+
+    // Build personality snapshots
+    const softSkillsSnapshot = (user as any).softSkillsAssessment?.map((a: any) => ({
+      trait: a.category,
+      score: a.score,
+    })) || [];
+    const personalitySnapshot = (user as any).personalityAssessment?.map((a: any) => ({
+      trait: a.category,
+      score: a.score,
+    })) || [];
 
     const application = await Application.create({
       internshipId: internshipId as string,
       internshipTitle: internship.title,
       companyName: internship.companyName,
-      studentId: user._id,
+      studentId: userId,
       studentName: user.username,
       studentEmail: user.email,
       studentPhone: user.phone,
@@ -60,11 +68,30 @@ export const submitExamAndApply = async (req: AuthRequest, res: Response) => {
       skills: user.skills,
       examScore: percentage,
       status: 'pending',
-      skillMatch
+      skillMatch,
+      softSkillsSnapshot,
+      personalitySnapshot,
+      compatibilityScore: 0,
+    });
+
+    // Notify the organization
+    await createNotification({
+      recipientId: String(internship.companyId),
+      recipientRole: 'company',
+      senderId: String(userId),
+      senderName: user.username,
+      type: 'application_received',
+      title: 'New Application Received',
+      message: `${user.username} applied to your opportunity: "${internship.title}"`,
+      relatedId: String((application as any)._id || (application as any).id),
+      relatedType: 'application',
     });
 
     return sendSuccess(res, 201, application, 'Application submitted successfully');
   } catch (error: any) {
+    if (error.code === 11000) {
+      return sendError(res, 400, 'You have already applied to this opportunity');
+    }
     return sendError(res, 500, error.message);
   }
 };
@@ -75,25 +102,32 @@ export const applyWithoutExam = async (req: AuthRequest, res: Response) => {
     const user = req.user!;
 
     const internship = await Internship.findById(internshipId);
-    if (!internship) return sendError(res, 404, 'Internship not found');
+    if (!internship) return sendError(res, 404, 'Opportunity not found');
     if (internship.exam && internship.exam.questions.length > 0) {
-      return sendError(res, 400, 'This internship requires an exam submission');
+      return sendError(res, 400, 'This opportunity requires an assessment submission');
     }
 
     const hasApplied = await Application.findOne({ studentId: user._id, internshipId });
-    if (hasApplied) return sendError(res, 400, 'Already applied to this internship');
+    if (hasApplied) return sendError(res, 400, 'Already applied to this opportunity');
 
     let matchCount = 0;
     const reqSkills = internship.requiredSkills || [];
     const userSkills = user.skills || [];
     if (reqSkills.length > 0) {
       reqSkills.forEach(sk => {
-        if (userSkills.some(us => us.toLowerCase() === sk.toLowerCase())) {
-          matchCount++;
-        }
+        if (userSkills.some(us => us.toLowerCase() === sk.toLowerCase())) matchCount++;
       });
     }
     const skillMatch = reqSkills.length > 0 ? Math.round((matchCount / reqSkills.length) * 100) : 0;
+
+    const softSkillsSnapshot = (user as any).softSkillsAssessment?.map((a: any) => ({
+      trait: a.category,
+      score: a.score,
+    })) || [];
+    const personalitySnapshot = (user as any).personalityAssessment?.map((a: any) => ({
+      trait: a.category,
+      score: a.score,
+    })) || [];
 
     const application = await Application.create({
       internshipId: internshipId as string,
@@ -107,11 +141,30 @@ export const applyWithoutExam = async (req: AuthRequest, res: Response) => {
       cvUrl: user.cvUrl,
       skills: user.skills,
       status: 'pending',
-      skillMatch
+      skillMatch,
+      softSkillsSnapshot,
+      personalitySnapshot,
+      compatibilityScore: 0,
+    });
+
+    // Notify the organization
+    await createNotification({
+      recipientId: internship.companyId.toString(),
+      recipientRole: 'company',
+      senderId: user._id?.toString(),
+      senderName: user.username,
+      type: 'application_received',
+      title: 'New Application Received',
+      message: `${user.username} applied to your opportunity: "${internship.title}"`,
+      relatedId: (application._id as any).toString(),
+      relatedType: 'application',
     });
 
     return sendSuccess(res, 201, application, 'Applied successfully');
   } catch (error: any) {
+    if (error.code === 11000) {
+      return sendError(res, 400, 'You have already applied to this opportunity');
+    }
     return sendError(res, 500, error.message);
   }
 };
@@ -127,12 +180,11 @@ export const getMyApplications = async (req: AuthRequest, res: Response) => {
 
 export const getCompanyApplications = async (req: AuthRequest, res: Response) => {
   try {
-    // Find all internships for the logged in company
     const internships = await Internship.find({ companyId: req.user?._id });
     const internshipIds = internships.map(i => i._id);
-
-    // Find all applications where internshipId is in the above list
-    const apps = await Application.find({ internshipId: { $in: internshipIds } }).sort({ appliedAt: -1 });
+    const apps = await Application.find({ internshipId: { $in: internshipIds } })
+      .populate('studentId', 'username profileImage')
+      .sort({ appliedAt: -1 });
     return sendSuccess(res, 200, apps, 'Company applications fetched');
   } catch (error: any) {
     return sendError(res, 500, error.message);
@@ -141,7 +193,9 @@ export const getCompanyApplications = async (req: AuthRequest, res: Response) =>
 
 export const getInternshipApplications = async (req: AuthRequest, res: Response) => {
   try {
-    const apps = await Application.find({ internshipId: req.params.internshipId }).sort({ appliedAt: -1 });
+    const apps = await Application.find({ internshipId: req.params.internshipId })
+      .populate('studentId', 'username profileImage')
+      .sort({ appliedAt: -1 });
     return sendSuccess(res, 200, apps, 'Applications fetched');
   } catch (error: any) {
     return sendError(res, 500, error.message);
@@ -151,18 +205,56 @@ export const getInternshipApplications = async (req: AuthRequest, res: Response)
 export const updateApplicationStatus = async (req: AuthRequest, res: Response) => {
   try {
     const { status } = req.body;
+    if (!['pending', 'accepted', 'rejected'].includes(status)) {
+      return sendError(res, 400, 'Invalid status value');
+    }
+
     const application = await Application.findById(req.params.id);
     if (!application) return sendError(res, 404, 'Application not found');
 
     const internship = await Internship.findById(application.internshipId);
     if (!internship) return sendError(res, 404, 'Internship not found');
 
-    if (internship.companyId.toString() !== req.user?._id?.toString()) {
+    // Robust ID comparison: String() on both sides
+    const ownerId = String(internship.companyId);
+    const requesterId = String((req.user as any)?._id || (req.user as any)?.id);
+    if (ownerId !== requesterId) {
       return sendError(res, 403, 'Not authorized');
     }
 
+    const oldStatus = application.status;
     application.status = status;
+
+    if (status === 'accepted' && oldStatus !== 'accepted') {
+      application.hoursEarned = internship.volunteerHours || 0;
+      application.acceptedAt = new Date();
+    } else if (status !== 'accepted' && oldStatus === 'accepted') {
+      application.hoursEarned = 0;
+      application.acceptedAt = undefined;
+    }
+
     await application.save();
+
+    // Notify the volunteer when their status changes (not from pending to pending)
+    if (status !== oldStatus && (status === 'accepted' || status === 'rejected')) {
+      const notificationType = status === 'accepted' ? 'application_accepted' : 'application_rejected';
+      const notificationTitle = status === 'accepted' ? '🎉 Application Accepted!' : 'Application Not Selected';
+      const notificationMessage = status === 'accepted'
+        ? `Congratulations! Your application for "${internship.title}" at ${internship.companyName} has been accepted.`
+        : `Your application for "${internship.title}" at ${internship.companyName} was not selected this time.`;
+
+      await createNotification({
+        recipientId: application.studentId.toString(),
+        recipientRole: 'student',
+        senderId: req.user?._id?.toString(),
+        senderName: req.user?.companyName,
+        type: notificationType,
+        title: notificationTitle,
+        message: notificationMessage,
+        relatedId: (application._id as any).toString(),
+        relatedType: 'application',
+      });
+    }
 
     return sendSuccess(res, 200, application, 'Status updated');
   } catch (error: any) {

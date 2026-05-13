@@ -32,6 +32,21 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to={redirectMap[user.role]} replace />;
   }
 
+  if (user.role === 'student') {
+    const hasCompleted = (user as any).hasCompletedOnboarding;
+    const isOnboardingPath = window.location.pathname === '/onboarding';
+    
+    // Hard gate: must complete onboarding
+    if (!hasCompleted && !isOnboardingPath) {
+      return <Navigate to="/onboarding" replace />;
+    }
+    
+    // Prevent re-accessing onboarding if already complete
+    if (hasCompleted && isOnboardingPath) {
+      return <Navigate to="/student/dashboard" replace />;
+    }
+  }
+
   if (user.role === 'company') {
     // Cast user as CompanyProfile to safely check isApproved
     // If not approved and trying to access a page other than Dashboard or Profile, redirect!
