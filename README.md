@@ -145,11 +145,13 @@ Start-Service -Name MongoDB
    EMAIL_PASS=your_app_password
    ```
    link RESEND_API_KEY: https://resend.com/
+   
    link GEMINI_API_KEY: https://ai.google.dev/gemini-api/docs/api-key
+   
    EMAIL_PASS:https://myaccount.google.com/apppasswords?utm_source=chatgpt.com
    ---
    
-3. Start the development server:
+4. Start the development server:
    ```powershell
    npm run dev
    ```
